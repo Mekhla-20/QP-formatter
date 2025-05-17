@@ -1,9 +1,11 @@
 import streamlit as st
+import os
 import zipfile
 from io import BytesIO
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 st.set_page_config(page_title="Question Paper Formatter", layout="centered")
@@ -28,12 +30,12 @@ exam_name = st.sidebar.text_input("Exam Name", "Term 1 Examination")
 
 uploaded_files = st.file_uploader("📂 Upload DOCX Files", type="docx", accept_multiple_files=True)
 
-# Utility to detect section headers
+# Function to detect section headers
 def is_section_header(text):
-    keywords = ["section", "instructions", "general", "note"]
-    return any(text.lower().strip().startswith(k) for k in keywords)
+    section_keywords = ["section", "instructions", "general", "note"]
+    return any(text.lower().strip().startswith(k) for k in section_keywords)
 
-# Align marks to right
+# Function to align marks at the end of a question line
 def align_marks_right(paragraph):
     if "(" in paragraph.text and ")" in paragraph.text:
         text = paragraph.text
@@ -43,44 +45,75 @@ def align_marks_right(paragraph):
             paragraph.clear()
             run_q = paragraph.add_run(question + " ")
             run_m = paragraph.add_run(marks)
-
-            # Font settings
-            for run in [run_q, run_m]:
-                run.font.name = font_name
-                run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
-                run.font.size = Pt(font_size)
-
+            run_q.font.name = run_m.font.name = font_name
+            run_q._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+            run_m._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+            run_q.font.size = run_m.font.size = Pt(font_size)
             paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-# Main formatter
+# Add page number field to footer
+def add_page_number(paragraph):
+    run = paragraph.add_run()
+    fldChar1 = OxmlElement('w:fldChar')
+    fldChar1.set(qn('w:fldCharType'), 'begin')
+
+    instrText = OxmlElement('w:instrText')
+    instrText.text = 'PAGE'
+
+    fldChar2 = OxmlElement('w:fldChar')
+    fldChar2.set(qn('w:fldCharType'), 'end')
+
+    run._r.append(fldChar1)
+    run._r.append(instrText)
+    run._r.append(fldChar2)
+
+# Function to format a single docx file
 def format_docx(file, settings):
     doc = Document(file)
 
-    for section in doc.sections:
-        section.top_margin = section.bottom_margin = Inches(settings['margin'])
-        section.left_margin = section.right_margin = Inches(settings['margin'])
+    # Page margins
+    sections = doc.sections
+    for section in sections:
+        section.top_margin = Inches(settings['margin'])
+        section.bottom_margin = Inches(settings['margin'])
+        section.left_margin = Inches(settings['margin'])
+        section.right_margin = Inches(settings['margin'])
 
-        if settings['add_header']:
-            section.header.paragraphs[0].text = f"{settings['school']} | {settings['exam']}"
-            footer = section.footer.paragraphs[0]
-            footer.clear()
-            footer.add_run("Page ").bold = True
-            footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Header/Footer
+    if settings['add_header']:
+        for section in sections:
+            header = section.header
+            header.paragraphs[0].text = settings['school'] + " | " + settings['exam']
+            footer = section.footer
+            if footer.paragraphs:
+                p = footer.paragraphs[0]
+            else:
+                p = footer.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            add_page_number(p)
 
+    # Apply formatting to all paragraphs
     for para in doc.paragraphs:
-        para.paragraph_format.line_spacing = settings['spacing']
-        if settings['indent']:
-            para.paragraph_format.left_indent = Inches(0.25)
-
-        if settings['bold_section'] and is_section_header(para.text):
-            for run in para.runs:
-                run.bold = True
-
         for run in para.runs:
             run.font.name = settings['font']
             run._element.rPr.rFonts.set(qn('w:eastAsia'), settings['font'])
             run.font.size = Pt(settings['size'])
 
+        para.paragraph_format.line_spacing = settings['spacing']
+
+        if settings['indent']:
+            para.paragraph_format.left_indent = Inches(0.25)
+
+        # Detect and bold section headers
+        if settings['bold_section'] and is_section_header(para.text):
+            for run in para.runs:
+                run.bold = True
+            if "instruction" in para.text.lower():
+                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                para.paragraph_format.left_indent = Inches(0.0)
+                para.paragraph_format.first_line_indent = Inches(0.0)
+
+        # Align marks right
         align_marks_right(para)
 
     return doc
@@ -106,6 +139,7 @@ if uploaded_files:
         formatted_files.append((uploaded_file.name, out_stream))
 
     if formatted_files:
+        # Create ZIP
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
             for name, file_data in formatted_files:
