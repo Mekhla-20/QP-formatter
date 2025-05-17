@@ -9,7 +9,7 @@ from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 st.set_page_config(page_title="Question Paper Formatter", layout="centered")
-st.title("📝 Question Paper Formatter")
+st.title("📜 Question Paper Formatter")
 
 st.markdown("""
 Upload multiple `.docx` files below and choose your formatting options. This tool supports English, Hindi, and Sanskrit documents.
@@ -33,7 +33,8 @@ uploaded_files = st.file_uploader("📂 Upload DOCX Files", type="docx", accept_
 # Function to detect section headers
 def is_section_header(text):
     section_keywords = ["section", "instructions", "general", "note"]
-    return any(text.lower().strip().startswith(k) for k in section_keywords)
+    lowered = text.lower()
+    return any(k in lowered for k in section_keywords)
 
 # Function to align marks at the end of a question line
 def align_marks_right(paragraph):
@@ -108,10 +109,14 @@ def format_docx(file, settings):
         if settings['bold_section'] and is_section_header(para.text):
             for run in para.runs:
                 run.bold = True
+
+            # Special alignment for instructions
             if "instruction" in para.text.lower():
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 para.paragraph_format.left_indent = Inches(0.0)
                 para.paragraph_format.first_line_indent = Inches(0.0)
+                para.paragraph_format.space_after = Pt(6)
+                para.paragraph_format.space_before = Pt(6)
 
         # Align marks right
         align_marks_right(para)
