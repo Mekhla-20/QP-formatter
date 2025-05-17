@@ -110,7 +110,7 @@ def format_docx(file, settings):
             for run in para.runs:
                 run.bold = True
 
-            # Special alignment for instructions
+            # Special alignment for instructions section
             if "instruction" in para.text.lower():
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 para.paragraph_format.left_indent = Inches(0.0)
